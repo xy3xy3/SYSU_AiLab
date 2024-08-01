@@ -1,0 +1,423 @@
+```
+最一般合一算法
+
+编写函数 `MGU`实现最一般合一算法. 该函数要点如下:
+
+* 输入为两个原子公式, 它们的谓词相同. 其数据类型为 `str`, 格式详见课件.
+* 输出最一般合一的结果, 数据类型为 `dict`, 格式形如{变量: 项, 变量: 项}, 其中的变量和项均为字符串.
+* 若不存在合一, 则返回空字典.
+
+例子:
+
+调用 `MGU('P(xx,a)', 'P(b,yy)')`后返回字典 `{'xx':'b', 'yy':'a'}`.
+
+调用 `MGU('P(a,xx,f(g(yy)))', 'P(zz,f(zz),f(uu))')`后返回字典 `{'zz':'a', 'xx':'f(a)', 'uu':'g(yy)'}`.
+
+import re
+
+def MGU(f1, f2):
+    # 解析两个公式的参数
+    p1 = get_param(f1)
+    p2 = get_param(f2)
+    
+    # 初始化结果字典和待处理的参数对
+    res = {}
+    queue = list(zip(p1, p2))
+    
+    while queue:
+        # 从队列去除两个公式集合
+        e1, e2 = queue.pop(0)
+        if e1 == e2:
+            continue  # 如果两个参数相同，则不需要合一
+        elif is_variable(e1):
+            if e1 in e2:
+                return {}  # 如果e1作为变量出现在e2中，则合一失败
+            else:
+                res[e1] = e2
+                queue = [(substitute(e1, e2, x), y) for x, y in queue]
+        elif is_variable(e2):
+            if e2 in e1:
+                return {}  # 如果e2作为变量出现在e1中，则合一失败
+            else:
+                res[e2] = e1
+                queue = [(x, substitute(e2, e1, y)) for x, y in queue]
+        else:
+            # 复合项f(x)之类的的处理
+            match1 = re.match(r'(\w+)\((.*)\)', e1)
+            match2 = re.match(r'(\w+)\((.*)\)', e2)
+            if match1 and match2 and match1.group(1) == match2.group(1):
+                # 剩下的项转字符串加入队列
+                subterms1 = match1.group(2).split(',')
+                subterms2 = match2.group(2).split(',')
+                queue.extend(zip(subterms1, subterms2))
+            else:
+                return {}  # 如果两个复合项的谓词不同，则合一失败
+    return res
+
+def get_param(f):
+    # 获取参数，返回list
+    match = re.match(r'(\w+)\((.*)\)', f)
+    if match:
+        terms = match.group(2).split(',')
+        return terms
+    return []
+
+def is_variable(term):
+    # 简单的判断是否为变量的函数
+    return re.match(r'^[a-z]+$', term) is not None
+
+def substitute(var, value, term):
+    # 在term中替换所有出现的var为value
+    return term.replace(var, value)
+
+# 测试
+print(MGU('P(xx,a)', 'P(b,yy)'))
+print(MGU('P(a,xx,f(g(yy)))', 'P(zz,f(zz),f(uu))'))
+
+```
+```
+
+编写函数 `ResolutionProp`实现命题逻辑的归结推理. 该函数要点如下:
+
+* 输入为子句集(数据类型与格式详见课件), 每个子句中的元素是原子命题或其否定.
+* 输出归结推理的过程, 每个归结步骤存为字符串, 将所有归结步骤按序存到一个列表中并返回, 即返回的数据类型为 `list[str]`.
+* 一个归结步骤的格式为`步骤编号 R[用到的子句编号] = 子句`. 如果一个字句包含多个公式，则每个公式用编号`a,b,c...`区分，如果一个字句仅包含一个公式，则不用编号区分.（见课件和例题）
+
+例子: 输入子句集
+
+```
+KB = {(FirstGrade,), (~FirstGrade,Child), (~Child,)}
+```
+
+则调用 `ResolutionProp(KB)`后返回推理过程的列表如下:
+
+```
+1 (FirstGrade,),
+2 (~FirstGrade,Child)
+3 (~Child,),
+4 R[1,2a] = (Child,),
+5 R[3,4] = ()
+```
+def ResolutionProp(KB):
+    steps = []  # 存储归结过程的步骤
+    id = 1  # 步骤编号
+    original_clauses = list(KB)  # 初始的子句集
+    clause_map = {}  # 映射每个子句到它的编号
+    new = set()  # 存储新产生的子句
+
+    # 初始化步骤和子句编号映射
+    for clause in original_clauses:
+        clause_map[clause] = str(id)
+        steps.append(f"{id}. {format_clause(clause)}")
+        id += 1
+
+    while True:
+        n = len(original_clauses)
+        found_empty_clause = False
+        # 遍历旧的，尝试产生新的子句
+        for i in range(n):
+            for j in range(i + 1, n):
+                resolvents, used_literal_i, used_literal_j = resolve_with_details(original_clauses[i], original_clauses[j])
+                for resolvent in resolvents:
+                    if resolvent not in original_clauses and resolvent not in new:
+                        # 格式化新的子句
+                        clause_str = format_clause(resolvent)
+                        step = f"{id} R[{clause_map[original_clauses[i]]}{used_literal_i},{clause_map[original_clauses[j]]}{used_literal_j}] = {clause_str}"
+                        # 添加到step与新子句
+                        steps.append(step)
+                        new.add(resolvent)
+                        clause_map[resolvent] = str(id)
+                        id += 1
+                    if resolvent == ():
+                        # 找到了nil，可以推出
+                        found_empty_clause = True
+                        break
+                if found_empty_clause:
+                    break
+            if found_empty_clause:
+                break
+        if found_empty_clause or new.issubset(set(original_clauses)):
+            break
+        original_clauses.extend(new)
+    return steps
+
+def resolve_with_details(ci, cj):
+    """
+    返回归结后的子句以及用到的id
+    """
+    resolvents = set()
+    used_literal_i = ''
+    used_literal_j = ''
+    # 遍历两个子句，找到可以归结的文字
+    for index_i, di in enumerate(ci):
+        for index_j, dj in enumerate(cj):
+            if di == negate(dj) or negate(di) == dj:
+                # 删去被归结的
+                resolvent = tuple(sorted(set(ci + cj) - {di, dj}))
+                resolvents.add(resolvent)
+                if len(ci) > 1:
+                    used_literal_i = chr(97 + index_i)  # 用字母a、b、c等表示
+                if len(cj) > 1:
+                    used_literal_j = chr(97 + index_j)
+    return resolvents, used_literal_i, used_literal_j
+
+def negate(literal):
+    # 取反逻辑
+    if literal.startswith("~"):
+        return literal[1:]
+    else:
+        return "~" + literal
+
+def format_clause(clause):
+    # 格式化子句为字符串
+    if len(clause) == 0:
+        return "()"
+    else:
+        return "(" + ", ".join(clause) + ")"
+
+if __name__ == "__main__":
+    KB = {("FirstGrade",), ("~FirstGrade","Child"), ("~Child",)}
+    steps = ResolutionProp(KB)
+    for step in steps:
+        print(step)
+```
+请参考上面的代码，完成下面的任务，相当于由命题逻辑变成了简单的谓词逻辑（不包含量词）
+```
+# 第4周实验课作业
+
+### 一阶逻辑的归结推理
+
+编写函数 `ResolutionFOL`实现一阶逻辑的归结推理. 该函数要点如下:
+
+* 输入为子句集, `KB`子句中的每个元素是一阶逻辑公式(不含$\exists, \forall$等量词符号)
+* 输出归结推理的过程, 每个归结步骤存为字符串, 将所有归结步骤按序存到一个列表中并返回, 即返回的数据类型为 `list[str]`
+* 一个归结步骤的格式为 `步骤编号 R[用到的子句编号]{最一般合一} = 子句`, 其中最一般合一输出格式为"{变量=常量, 变量=常量}".如果一个字句包含多个公式，则每个公式用编号`a,b,c...`区分，如果一个字句仅包含一个公式，则不用编号区分。（见课件和例题）
+
+例题: 输入
+
+```
+KB = {("GradStudent(sue)",),("~GradStudent(x)","Student(x)"),("~Student(x)","HardWorker(x)"),("~HardWorker(sue)",)}
+```
+
+则调用 `ResolutionFOL(KB)`后返回推理过程的列表如下:
+
+```
+1 (GradStudent(sue),)
+2 (~GradStudent(x),Student(x))
+3 (~Student(x),HardWorker(x))
+4 (~HardWorker(sue),)
+5 R[1,2a]{x=sue} = (Student(sue),)
+6 R[3a,5]{x=sue} = (HardWorker(sue),)
+7 R[4,6] = []
+```
+
+### 作业1
+
+输入
+
+```
+KB = {("A(tony)",),("A(mike)",),("A(john)",),("L(tony,rain)",),("L(tony,snow)",),("~A(x)","S(x)","C(x)"),("~C(y)","~L(y,rain)"),("L(z,snow)","~S(z)"),("~L(tony,u)","~L(mike,u)"),("L(tony,v)","L(mike,v)"),("~A(w)","~C(w)","S(w)")}
+```
+
+输出
+
+```
+1 (A(tony),)
+2 (A(mike),)
+3 (A(john),)
+4 (L(tony,rain),)
+5 (L(tony,snow),)
+6 (~A(x),S(x),C(x))
+7 (~C(y),~L(y,rain))
+8 (L(z,snow),~S(z))
+9 (~L(tony,u),~L(mike,u))
+10 (L(tony,v),L(mike,v))
+11 (~A(w),~C(w),S(w))
+12 R[2,11a]{w=mike} = (S(mike),~C(mike))
+13 R[5,9a]{u=snow} = (~L(mike,snow),)
+14 R[6c,12b]{x=mike} = (S(mike),~A(mike),S(mike))
+15 R[2,14b] = (S(mike),)
+16 R[8b,15]{z=mike} = (L(mike,snow),)
+17 R[13,16] = []
+```
+
+### 作业2
+
+输入
+
+```
+KB =  {("On(tony,mike)",),("On(mike,john)",),("Green(tony)",),("~Green(john)",),("~On(xx,yy)","~Green(xx)","Green(yy)")}
+```
+
+输出
+
+```
+1 (On(tony,mike),),
+2 (On(mike,john),),
+3 (Green(tony),),
+4 (~Green(john),),
+5 (~On(xx,yy),~Green(xx),Green(yy)),
+6 R[4,5c]{yy=john} = (~On(xx,john),~Green(xx)),
+7 R[3,5b]{xx=tony} = (~On(tony,yy),Green(yy)),
+8 R[2,6a]{xx=mike} = (~Green(mike),),
+9 R[1,7a]{yy=mike} = (Green(mike),),
+10 R[8,9] = ()
+```
+
+得到代码
+```
+import re
+
+# 最一般合一算法
+def MGU(f1, f2):
+    # 获取谓词的参数列表
+    def get_param(f):
+        if f.startswith('~'):
+            f = f[1:]
+        match = re.match(r'(\w+)\((.*)\)', f)
+        if match:
+            terms = match.group(2).split(',')
+            return terms
+        return []
+
+    # 判断是否是单个变量
+    def is_variable(term):
+        return re.match(r'^[a-z]{1,2}$', term) is not None
+
+    # 将term中的var替换为value
+    def substitute(var, value, term):
+        return re.sub(r'\b' + var + r'\b', value, term)
+
+    p1 = get_param(f1)
+    p2 = get_param(f2)
+    res = {}
+    queue = list(zip(p1, p2))
+
+    while queue:
+        e1, e2 = queue.pop(0)
+        if e1 == e2:
+            continue
+        # 如果e1是变量
+        elif is_variable(e1):
+            if e1 in e2:
+                return {}
+            else:
+                res[e1] = e2
+                queue = [(substitute(e1, e2, x), y) for x, y in queue]
+        # 如果e2是变量
+        elif is_variable(e2):
+            if e2 in e1:
+                return {}
+            else:
+                res[e2] = e1
+                queue = [(x, substitute(e2, e1, y)) for x, y in queue]
+        # 如果e1和e2都是复合项
+        else:
+            match1 = re.match(r'(\w+)\((.*)\)', e1)
+            match2 = re.match(r'(\w+)\((.*)\)', e2)
+            if match1 and match2 and match1.group(1) == match2.group(1):
+                subterms1 = match1.group(2).split(',')
+                subterms2 = match2.group(2).split(',')
+                queue.extend(zip(subterms1, subterms2))
+            else:
+                return {}
+    return res
+
+# 一阶逻辑的归结推理
+def ResolutionFOL(KB):
+    # 将子句格式化为字符串
+    def format_clause(clause):
+        if len(clause) == 0:
+            return "()"
+        else:
+            return "(" + ", ".join(clause) + ")"
+
+    # 对字面量进行否定
+    def negate(literal):
+        if literal.startswith("~"):
+            return literal[1:]
+        else:
+            return "~" + literal
+
+    # 解析字面量
+    def parse_literal(literal):
+        match = re.match(r'(~?)(\w+)\((.*)\)', literal)
+        if match:
+            return {'neg': match.group(1) == '~', 'pred': match.group(2), 'terms': match.group(3).split(',')}
+        return None
+
+    # 对两个字面量进行最一般合一
+    def unify_literals(li, lj):
+        parsed_li = parse_literal(li)
+        parsed_lj = parse_literal(lj)
+        # 要求，谓词相同且符号不同
+        if parsed_li['pred'] == parsed_lj['pred'] and parsed_li['neg']!=parsed_lj['neg']:
+            res = MGU(li, lj)
+            #如果res为{}，输出None
+            if res == {}:
+                return None
+            return res
+        return None
+
+    steps = []
+    id = 1
+    original_clauses = list(KB)
+    clause_map = {}
+    new = set()
+
+    # 记录初始子句
+    for clause in original_clauses:
+        clause_map[clause] = str(id)
+        steps.append(f"{id}. {format_clause(clause)}")
+        id += 1
+
+    while True:
+        n = len(original_clauses)
+        found_empty_clause = False
+        # 对每对子句进行归结
+        for i in range(n):
+            for j in range(i + 1, n):
+                for li in original_clauses[i]:
+                    for lj in original_clauses[j]:
+                        substitution = unify_literals(li, lj)
+                        if substitution is not None:
+                            resolvent = tuple(sorted(set(original_clauses[i] + original_clauses[j]) - {li, lj}))
+                            if resolvent not in original_clauses and resolvent not in new:
+                                steps.append(f"{id} R[{clause_map[original_clauses[i]]},{clause_map[original_clauses[j]]}]{{{', '.join([f'{k}={v}' for k, v in substitution.items()])}}} = {format_clause(resolvent)}")
+                                new.add(resolvent)
+                                clause_map[resolvent] = str(id)
+                                id += 1
+                            # 如果推导出空子句,则知识库不合一
+                            if resolvent == ():
+                                found_empty_clause = True
+                                break
+                    if found_empty_clause:
+                        break
+                if found_empty_clause:
+                    break
+            if found_empty_clause:
+                break
+        # 如果没有新的子句可以推导,或者推导出空子句,则停止
+        if found_empty_clause or new.issubset(set(original_clauses)):
+            break
+        original_clauses.extend(new)
+    return steps
+KB = {("On(tony,mike)",),("On(mike,john)",),("Green(tony)",),("~Green(john)",),("~On(xx,yy)","~Green(xx)","Green(yy)")}
+steps = ResolutionFOL(KB)
+for step in steps:
+    print(step)
+
+```
+但是缺乏编号
+
+1 (On(tony,mike),),
+2 (On(mike,john),),
+3 (Green(tony),),
+4 (~Green(john),),
+5 (~On(xx,yy),~Green(xx),Green(yy)),
+6 R[4,5c]{yy=john} = (~On(xx,john),~Green(xx)),
+7 R[3,5b]{xx=tony} = (~On(tony,yy),Green(yy)),
+其中5c是指5的第三个Green(yy)；a,b,c为1，2，3个文字，如果元组的文字大于1就要写
+修复没有编号的问题
+```
+

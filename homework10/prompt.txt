@@ -1,0 +1,553 @@
+## 实现DQN算法
+
+在`CartPole-v0`环境中实现DQN算法。最终算法性能的评判标准：以算法收敛的reward大小、收敛所需的样本数量给分。 reward越高（至少是180，最大是200）、收敛所需样本数量越少，分数越高。 
+
+## Submission
+
+作业提交内容：需提交一个zip文件，包括代码以及实验报告PDF。实验报告除了需要写writing部分的内容，还需要给出reward曲线图以及算法细节。
+
+
+相关环境的说明文档：https://www.gymlibrary.ml/
+
+## 参考笔记
+import numpy as np
+import gym
+import matplotlib.pyplot as plt
+from matplotlib import animation
+gym.version.VERSION
+!pip install JSAnimation
+from JSAnimation.IPython_display import display_animation
+from IPython.display import display, HTML
+## 重新认识 cartpole 环境
+- 小滑块/倒立摆
+- 典型的 mdp（markov decision process）
+    - 下一时刻的状态（转移）$s_{t+1}$ 只跟当前状态 $s_t$ 和（当前状态下采取的）$a_t$ 有关
+- action space is discrete and finite
+- state（observation）space is continuous
+env = gym.make('CartPole-v0')
+### state/space
+# init space
+env.reset()
+# action space
+print(env.action_space)
+print(env.action_space.n)
+# observation space
+# https://www.gymlibrary.dev/environments/classic_control/cart_pole/
+print(env.observation_space)
+print(env.observation_space.low)
+print(env.observation_space.high)
+### one episode
+env = gym.make('CartPole-v0')
+# observation = env.reset()
+state = env.reset()
+steps = 0
+frames = []
+while True:
+    frames.append(env.render(mode='rgb_array'))
+    action = env.action_space.sample()
+    state, reward, done, info = env.step(action)
+    steps += 1
+    print(f'step: {steps}, state: {state}')
+    if done:
+        break
+frames
+def display_frames_as_gif(frames, output):
+    """
+    Displays a list of frames as a gif, with controls
+    以gif格式显示关键帧列，带有控件
+    """
+    
+    fig = plt.figure(figsize=(frames[0].shape[1]/72.0, frames[0].shape[0]/72.0),dpi=72)
+    patch = plt.imshow(frames[0])
+    plt.axis('off')
+    
+    def animate(i):
+        img = patch.set_data(frames[i])
+        return img   ## *** return是必须要有的 ***
+        
+    anim = animation.FuncAnimation(plt.gcf(), animate, frames=len(frames), interval=50)
+    
+    anim.save(output)
+    return HTML(anim.to_jshtml())  ## *** 返回一个HTML对象，以便被调用者显示。 ***
+    # display(display_animation(anim, default_mode='loop'))
+display_frames_as_gif(frames, output='./save/rand_cartpole.gif')
+display_frames_as_gif(frames, output='./save/rand_cartpole.mp4')
+## 状态离散化
+NUM_DIGITIZED = 6
+
+# 分桶， 5个值，对应 6 个分段，即 6 个桶 (0, 1, 2, 3, 4, 5)
+def bins(clip_min, clip_max, num_bins=NUM_DIGITIZED):
+    return np.linspace(clip_min, clip_max, num_bins+1)[1:-1]
+
+# 按 6 进制映射将 4位 6 进制数映射为 id，
+def digitize_state(observation):
+    pos, cart_v, angle, pole_v = observation
+    digitized = [np.digitize(pos, bins=bins(-2.4, 2.4, NUM_DIGITIZED)), 
+                 np.digitize(cart_v, bins=bins(-3., 3, NUM_DIGITIZED)), 
+                 np.digitize(angle, bins=bins(-0.418, 0.418, NUM_DIGITIZED)), 
+                 np.digitize(pole_v, bins=bins(-2, 2, NUM_DIGITIZED))]
+    # 3,1,2,4 (4位10进制数) = 4*10^0 + 2*10^1 + 1*10^2 + 3*10^3，最终的取值范围是 0-9999，总计 10^4 == 10000
+    # a,b,c,d (4位6进制数) = d*6^0 + c*6^1 + b*6^2 + a*6^3，最终的取值范围是 0-`5555`(1295)，总计 6^4 == 1296
+    ind = sum([d*(NUM_DIGITIZED**i) for i, d in enumerate(digitized)])
+    return ind
+    
+obs = env.reset()
+obs
+bins(-2.4, 2.4, NUM_DIGITIZED)
+
+import numpy as np
+import gym
+import matplotlib.pyplot as plt
+from matplotlib import animation
+import random
+gym.version.VERSION
+!pip install JSAnimation
+from JSAnimation.IPython_display import display_animation
+from IPython.display import display, HTML
+## 重新认识 cartpole 环境
+- 小滑块/倒立摆
+- 典型的 mdp（markov decision process）
+    - 下一时刻的状态（转移）$s_{t+1}$ 只跟当前状态 $s_t$ 和（当前状态下采取的）$a_t$ 有关
+- action space is discrete and finite
+- state（observation）space is continuous
+env = gym.make('CartPole-v0')
+### state/space
+# init space
+env.reset()
+# action space
+print(env.action_space)
+print(env.action_space.n)
+# observation space
+# https://www.gymlibrary.dev/environments/classic_control/cart_pole/
+print(env.observation_space)
+print(env.observation_space.low)
+print(env.observation_space.high)
+print(env.observation_space.shape[0])
+### one episode
+env = gym.make('CartPole-v0')
+# observation = env.reset()
+state = env.reset()
+steps = 0
+frames = []
+while True:
+    frames.append(env.render(mode='rgb_array'))
+    action = env.action_space.sample()
+    state, reward, done, info = env.step(action)
+    steps += 1
+    print(f'step: {steps}, state: {state}')
+    if done:
+        break
+frames
+def display_frames_as_gif(frames, output):
+    """
+    Displays a list of frames as a gif, with controls
+    以gif格式显示关键帧列，带有控件
+    """
+    
+    fig = plt.figure(figsize=(frames[0].shape[1]/72.0, frames[0].shape[0]/72.0),dpi=72)
+    patch = plt.imshow(frames[0])
+    plt.axis('off')
+    
+    def animate(i):
+        img = patch.set_data(frames[i])
+        return img   ## *** return是必须要有的 ***
+        
+    anim = animation.FuncAnimation(plt.gcf(), animate, frames=len(frames), interval=50)
+    
+    anim.save(output)
+    return HTML(anim.to_jshtml())  ## *** 返回一个HTML对象，以便被调用者显示。 ***
+    # display(display_animation(anim, default_mode='loop'))
+display_frames_as_gif(frames, output='./save/rand_cartpole.gif')
+display_frames_as_gif(frames, output='./save/rand_cartpole.mp4')
+## 状态离散化
+NUM_DIGITIZED = 6
+
+# 分桶， 5个值，对应 6 个分段，即 6 个桶 (0, 1, 2, 3, 4, 5)
+def bins(clip_min, clip_max, num_bins=NUM_DIGITIZED):
+    return np.linspace(clip_min, clip_max, num_bins+1)[1:-1]
+
+# 按 6 进制映射将 4位 6 进制数映射为 id，
+def digitize_state(observation):
+    pos, cart_v, angle, pole_v = observation
+    digitized = [np.digitize(pos, bins=bins(-2.4, 2.4, NUM_DIGITIZED)), 
+                 np.digitize(cart_v, bins=bins(-3., 3, NUM_DIGITIZED)), 
+                 np.digitize(angle, bins=bins(-0.418, 0.418, NUM_DIGITIZED)), 
+                 np.digitize(pole_v, bins=bins(-2, 2, NUM_DIGITIZED))]
+    # 3,1,2,4 (4位10进制数) = 4*10^0 + 2*10^1 + 1*10^2 + 3*10^3，最终的取值范围是 0-9999，总计 10^4 == 10000
+    # a,b,c,d (4位6进制数) = d*6^0 + c*6^1 + b*6^2 + a*6^3，最终的取值范围是 0-`5555`(1295)，总计 6^4 == 1296
+    ind = sum([d*(NUM_DIGITIZED**i) for i, d in enumerate(digitized)])
+    return ind
+    
+obs = env.reset()
+obs
+bins(-2.4, 2.4, NUM_DIGITIZED)
+## q-learning
+class Agent:
+    def __init__(self, action_space, n_states, eta=0.5, gamma=0.99, NUM_DIGITIZED=6):
+        self.eta = 0.5
+        self.gamme = gamma
+        # Discrete(2)
+        self.action_space = action_space
+        self.NUM_DIGITIZED = NUM_DIGITIZED
+        self.q_table = np.random.uniform(0, 1, size=(NUM_DIGITIZED**n_states, self.action_space.n))
+        
+    # 分桶， 5个值，对应 6 个分段，即 6 个桶 (0, 1, 2, 3, 4, 5)
+    @staticmethod
+    def _bins(clip_min, clip_max, num_bins):
+        return np.linspace(clip_min, clip_max, num_bins+1)[1:-1]
+
+    # 按 6 进制映射将 4位 6 进制数映射为 id，
+    @staticmethod
+    def _digitize_state(observation, NUM_DIGITIZED):
+        pos, cart_v, angle, pole_v = observation
+        digitized = [np.digitize(pos, bins=Agent._bins(-2.4, 2.4, NUM_DIGITIZED)), 
+                     np.digitize(cart_v, bins=Agent._bins(-3., 3, NUM_DIGITIZED)), 
+                     np.digitize(angle, bins=Agent._bins(-0.418, 0.418, NUM_DIGITIZED)), 
+                     np.digitize(pole_v, bins=Agent._bins(-2, 2, NUM_DIGITIZED))]
+        # 3,1,2,4 (4位10进制数) = 4*10^0 + 2*10^1 + 1*10^2 + 3*10^3，最终的取值范围是 0-9999，总计 10^4 == 10000
+        # a,b,c,d (4位6进制数) = d*6^0 + c*6^1 + b*6^2 + a*6^3，最终的取值范围是 0-`5555`(1295)，总计 6^4 == 1296
+        ind = sum([d*(NUM_DIGITIZED**i) for i, d in enumerate(digitized)])
+        return ind
+
+#     def update_q_table()
+    def q_learning(self, obs, action, reward, obs_next):
+        obs_ind = Agent._digitize_state(obs, self.NUM_DIGITIZED)
+        obs_next_ind = Agent._digitize_state(obs_next, self.NUM_DIGITIZED)
+        self.q_table[obs_ind, action] = self.q_table[obs_ind, action] + self.eta*(reward + max(self.q_table[obs_next_ind, :]) - self.q_table[obs_ind, action])
+        
+    def choose_action(self, state, episode):
+        eps = 0.5*1/(episode + 1)
+        state_ind = Agent._digitize_state(state, self.NUM_DIGITIZED)
+        # epsilon greedy
+        if random.random() < eps:
+            action = self.action_space.sample()
+        else:
+            action = np.argmax(self.q_table[state_ind, :])
+        return action
+env = gym.make('CartPole-v0')
+env.reset()
+action_space = env.action_space
+n_states = env.observation_space.shape[0]
+
+agent = Agent(action_space, n_states)
+
+max_episodes = 1000
+max_steps = 200
+
+continue_success_episodes = 0
+learning_finish_flag = False
+
+frames = []
+
+for episode in range(max_episodes):
+    obs = env.reset()
+    for step in range(max_steps):
+        if learning_finish_flag:
+            frames.append(env.render(mode='rgb_array'))
+        action = agent.choose_action(obs, episode)
+        obs_next, _, done, _ = env.step(action)
+        if done:
+            if step < 195:
+                reward = -1
+                continue_success_episodes = 0
+            else:
+                reward = 1
+                continue_success_episodes += 1
+        else:
+            reward = 0
+        
+        agent.q_learning(obs, action, reward, obs_next)
+        
+        if done:
+            print(f'episode: {episode}, finish {step} time steps.')
+            break
+            
+        obs = obs_next
+        
+    if learning_finish_flag:
+        break
+    if continue_success_episodes >= 10:
+        learning_finish_flag = True
+        print(f'continue success(step > 195) more than 10 times ')
+
+display_frames_as_gif(frames, output='./save/cart_pole_q_learrning.gif')
+## outline & summary
+- q-learning => DQN（Deep Q Learning network)
+- q_learning base q-table
+    - state 需要是/处理成离散的（discrete）
+    - q-table：行是state，列是action；
+    - $Q(s,a)$：动作价值（value），不是概率分布；
+        - $Q(s_t,a_t)$是在时刻 $t$，状态 $s_t$下采取动作 $a_t$ 时获得的折扣奖励总和（discounted total reward）
+            - 未来的价值折现到现在；
+    - image（pixels） as a state，状态变量的数量非常之大；
+- dqn：nn(state) => action value，
+    - q table => q function（**拟合/回归**，state vector 与 action value 的关系） 
+    - 输入输出：
+        - 输入（input）：state vector;
+            - cartpole：4d vector（位置，速度，角度，和角速度），甚至都需要care其semantic meaning；
+        - 输出：action space value，$Q(s_t,a_t)$
+            - shape：action space size；
+            - CartPole：2d（left/right）
+
+## outline & summary
+- q-learning => DQN（Deep Q Learning network)
+- q_learning base q-table
+    - state 需要是/处理成离散的（discrete）
+    - q-table：行是state，列是action；
+    - $Q(s,a)$：动作价值（value），不是概率分布；
+        - $Q(s_t,a_t)$是在时刻 $t$，状态 $s_t$下采取动作 $a_t$ 时获得的折扣奖励总和（discounted total reward）
+            - 未来的价值折现到现在；
+    - image（pixels） as a state，状态变量的数量非常之大；
+- dqn：nn(state) => action value，
+    - q table => q function（**拟合/回归**，state vector 与 action value 的关系） 
+    - 输入输出：
+        - 输入（input）：state vector;
+            - cartpole：4d vector（位置，速度，角度，和角速度），甚至都需要care其semantic meaning；
+        - 输出：action space value，$Q(s_t,a_t)$
+            - shape：action space size；
+            - CartPole：2d（left/right）
+上面的比较老，可以运行的简单版本如下
+import gym
+
+# 创建环境，并指定渲染模式为"human"
+#human rgb_array
+env = gym.make('CartPole-v0', render_mode="human")
+
+# 初始化环境
+env.reset()
+
+for _ in range(1000):
+    # 渲染环境
+    env.render()
+
+    # 随机动作
+    action = env.action_space.sample()
+
+    # 执行动作
+    observation, reward, terminated, truncated, info = env.step(action)
+
+    # 如果任务结束，则重置环境
+    if terminated or truncated:
+        print("Episode finished after {} timesteps".format(_ + 1))
+        env.reset()
+
+# 关闭环境
+env.close()
+
+## 我的代码环境
+Code\argument.py
+```
+def dqn_arguments(parser):
+    """
+    Add your arguments here if needed. The TAs will run test.py to load
+    your default arguments.
+
+    For example:
+        parser.add_argument('--batch_size', type=int, default=32, help='batch size for training')
+        parser.add_argument('--learning_rate', type=float, default=0.01, help='learning rate for training')
+    """
+    parser.add_argument('--env_name', default="CartPole-v0", help='environment name')
+
+    parser.add_argument("--seed", default=11037, type=int)
+    parser.add_argument("--hidden_size", default=16, type=int)
+    parser.add_argument("--lr", default=0.02, type=float)
+    parser.add_argument("--gamma", default=0.99, type=float)
+    parser.add_argument("--grad_norm_clip", default=10, type=float)
+
+    parser.add_argument("--test", default=False, type=bool)
+    parser.add_argument("--use_cuda", default=True, type=bool)
+    parser.add_argument("--n_frames", default=int(30000), type=int)
+
+    return parser
+```
+Code\main.py
+```
+import argparse
+import gym
+from argument import dqn_arguments
+
+
+def parse():
+    parser = argparse.ArgumentParser(description="SYSU_RL_HW2")
+    parser.add_argument('--train_dqn', default=False, type=bool, help='whether train DQN')
+    parser = dqn_arguments(parser)
+    args = parser.parse_args()
+    return args
+
+
+def run(args):
+    if args.train_dqn:
+        env_name = args.env_name
+        env = gym.make(env_name)
+        from agent_dir.agent_dqn import AgentDQN
+        agent = AgentDQN(env, args)
+        agent.run()
+
+#python main.py --train_dqn True --env_name CartPole-v1 --seed 11037 --hidden_size 16 --lr 0.02 --gamma 0.99
+if __name__ == '__main__':
+    args = parse()
+    print(args)
+    run(args)
+
+```
+Code\agent_dir\agent.py
+```
+class Agent(object):
+    def __init__(self, env):
+        self.env = env
+
+    def make_action(self, observation, test=True):
+        """
+        Return predicted action of your agent
+        This function must exist in agent
+
+        Input:
+            When running dqn:
+                observation: np.array
+                    stack 4 last preprocessed frames, shape: (84, 84, 4)
+
+            When running pg:
+                observation: np.array
+                    current RGB screen of game, shape: (210, 160, 3)
+
+        Return:
+            action: int
+                the predicted action from trained model
+        """
+        raise NotImplementedError("Subclasses should implement this!")
+
+    def init_game_setting(self):
+        """
+
+        Testing function will call this function at the begining of new game
+        Put anything you want to initialize if necessary
+
+        """
+        raise NotImplementedError("Subclasses should implement this!")
+
+    def run(self):
+        """
+        Implement the interaction between agent and environment here
+        """
+        raise NotImplementedError
+
+```
+Code\agent_dir\agent_dqn.py
+```
+import os
+import random
+import copy
+import numpy as np
+import torch
+from pathlib import Path
+from tensorboardX import SummaryWriter
+from torch import nn, optim
+from agent_dir.agent import Agent
+
+
+class QNetwork(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(QNetwork, self).__init__()
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def forward(self, inputs):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+
+class ReplayBuffer:
+    def __init__(self, buffer_size):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def __len__(self):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def push(self, *transition):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def sample(self, batch_size):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def clean(self):
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+
+class AgentDQN(Agent):
+    def __init__(self, env, args):
+        """
+        Initialize every things you need here.
+        For example: building your model
+        """
+        super(AgentDQN, self).__init__(env)
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+    
+    def init_game_setting(self):
+        """
+
+        Testing function will call this function at the begining of new game
+        Put anything you want to initialize if necessary
+
+        """
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def train(self):
+        """
+        Implement your training algorithm here
+        """
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def make_action(self, observation, test=True):
+        """
+        Return predicted action of your agent
+        Input:observation
+        Return:action
+        """
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+    def run(self):
+        """
+        Implement the interaction between agent and environment here
+        """
+        ##################
+        # YOUR CODE HERE #
+        ##################
+        pass
+
+```
+
+
+## 任务
+参考给的代码笔记
+请帮我实现Code\agent_dir\agent_dqn.py代码，中文注释与交流

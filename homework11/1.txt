@@ -1,0 +1,429 @@
+# 角色：实验报告助手
+你将扮演出色的实验报告助手，辅助完成一份有说服力的实验报告
+
+# 实验报告
+```实验报告markdown
+# 人工智能实验报告 实验作业11
+
+<center>姓名:胡瑞康 学号:22336087</center>
+
+## 实验题目
+
+### 实现DQN算法
+
+在`CartPole-v0`环境中实现DQN算法。最终算法性能的评判标准：以算法收敛的reward大小、收敛所需的样本数量给分。 reward越高（至少是180，最大是200）、收敛所需样本数量越少，分数越高。 
+
+### Submission
+
+作业提交内容：需提交一个zip文件，包括代码以及实验报告PDF。实验报告除了需要写writing部分的内容，还需要给出reward曲线图以及算法细节。
+
+## 实验内容
+
+### 算法介绍
+
+DQN（Deep Q-Network）算法是一种结合了深度学习和强化学习的算法。其核心思想是使用神经网络来逼近Q值函数，从而解决传统Q-learning算法在高维状态空间下无法有效工作的瓶颈。DQN通过以下几个关键技术来实现：
+
+- 使用神经网络作为Q值函数的逼近器。
+- 经验回放缓冲区（Replay Buffer）用于存储训练数据，打破数据相关性。
+- 目标网络（Target Network）用于稳定训练过程。
+
+DQN算法的更新步骤如下：
+1. 从经验回放缓冲区中随机抽取一个小批量（mini-batch）的经验数据。
+2. 通过神经网络计算当前状态的Q值。
+3. 使用目标网络计算下一个状态的Q值，并计算目标Q值。
+4. 使用均方误差（MSE）损失函数计算误差并进行反向传播更新网络参数。
+5. 定期更新目标网络。
+
+
+### 代码展示
+
+#### Q网络
+```python
+class QNetwork(nn.Module):
+    # 初始化函数，接收输入大小、隐藏层大小和输出大小作为参数
+    def __init__(self, input_size, hidden_size, output_size):
+        # 调用父类的初始化方法
+        super(QNetwork, self).__init__()
+        # 定义第一个全连接层，输入大小为input_size，输出大小为hidden_size
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        # 定义第一个ReLU激活函数
+        self.relu1 = nn.ReLU()
+        # 定义第二个全连接层，输入大小和输出大小均为hidden_size
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        # 定义第二个ReLU激活函数
+        self.relu2 = nn.ReLU()
+        # 定义第三个全连接层，输入大小为hidden_size，输出大小为output_size
+        self.fc3 = nn.Linear(hidden_size, output_size)
+
+    # 定义前向传播函数，接收输入数据
+    def forward(self, inputs):
+        # 将输入数据通过第一个全连接层
+        x = self.fc1(inputs)
+        # 应用第一个ReLU激活函数
+        x = self.relu1(x)
+        # 将激活后的数据通过第二个全连接层
+        x = self.fc2(x)
+        # 应用第二个ReLU激活函数
+        x = self.relu2(x)
+        # 将激活后的数据通过第三个全连接层
+        x = self.fc3(x)
+        # 返回最终的输出结果
+        return x
+```
+QNetwork 是一个深度神经网络模型，用于处理强化学习中的 Q 值函数估计。该网络由三个全连接层和两个 ReLU 激活函数构成，能够接受特征向量作为输入并输出相应的 Q 值。模型使用 PyTorch 框架构建，具有较强的扩展性和灵活性。
+
+
+
+## 实验结果及分析
+
+### 实验结果展示
+
+
+为了保证数据结果可靠与容易观察，使用4个五位随机数作为种子测试
+
+```
+11038, 63415, 91284, 31472
+```
+
+得到奖励曲线与均方差如图下所示
+
+![](./img/reward.png)
+
+
+
+### 2. 实验结果分析
+
+```
+
+
+# 实验代码
+```实验代码
+main.py
+import argparse
+import os
+import gym
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorboardX import SummaryWriter
+from agent_dir.agent_dqn import AgentDQN
+
+plt.rcParams["font.sans-serif"] = ["SimHei"]  # 用来正常显示中文标签
+plt.rcParams["axes.unicode_minus"] = False  # 用来正常显示负号
+
+
+def parse():
+    parser = argparse.ArgumentParser(description="Run Experiments with Different Seeds")
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=[11038, 63415, 81247, 31472],
+        help="list of seeds",
+    )
+    parser.add_argument(
+        "--log_dir", default="./logs", type=str, help="directory for logs"
+    )
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == "__main__":
+    # 删除logs/*.xy3dn文件，遍历
+    for file in os.listdir("./logs"):
+        if file.endswith(".xy3dn"):
+            os.remove(os.path.join("./logs", file))
+    args = parse()
+
+    params = {
+        "env_name": "CartPole-v0",
+        # 隐藏层大小
+        "hidden_size": 128,
+        # 学习率
+        "lr": 5e-4,
+        # 学习率衰减
+        "lr_decay": 0.99,
+        #多久衰减
+        "lr_decay_freq": 3000,
+        "gamma": 0.95,
+        # 跑多少轮
+        "n_frames": 200,
+        # 缓冲区大小
+        "buffer_size": 4000,
+        # 批大小
+        "batch_size": 128,
+        # 每隔一定步数更新目标网络
+        "update_target_freq": 10,
+        #多大概率从经验回放中选择动作
+        "epsilon": 1.0,
+        "epsilon_min": 5e-4,
+        "epsilon_decay": 0.996,
+    }
+
+    all_rewards = []
+    for seed in args.seeds:
+        env = gym.make(params["env_name"], render_mode="rgb_array")
+        args = argparse.Namespace(
+            env_name=params["env_name"],
+            hidden_size=params["hidden_size"],
+            lr=params["lr"],
+            lr_decay=params["lr_decay"],
+            lr_decay_freq=params["lr_decay_freq"],
+            gamma=params["gamma"],
+            n_frames=params["n_frames"],
+            seed=seed,
+            batch_size=params["batch_size"],
+            buffer_size=params["buffer_size"],
+            update_target_freq=params["update_target_freq"],
+            epsilon = params["epsilon"],
+            epsilon_min = params["epsilon_min"],
+            epsilon_decay = params["epsilon_decay"],
+            log_dir=args.log_dir,
+        )
+
+        agent = AgentDQN(env, args)
+        agent.train()
+        rewards = agent.all_rewards
+        all_rewards.append(rewards)
+
+    # 统一所有奖励的最小长度
+    min_length = min([len(rewards) for rewards in all_rewards])
+    all_rewards = [rewards[:min_length] for rewards in all_rewards]
+
+    # 转换为numpy数组
+    all_rewards = np.array(all_rewards)
+    rewards_std = np.std(all_rewards, axis=0)
+
+    # 创建SummaryWriter
+    writer = SummaryWriter(args.log_dir)
+
+    # 创建一个新的图
+    plt.figure()
+
+    # 记录每个实验的奖励和标准差
+    for i in range(min_length):
+        for j, rewards in enumerate(all_rewards):
+            writer.add_scalar(f"实验{j+1}/奖励", rewards[i], i)
+
+    for j, rewards in enumerate(all_rewards):
+        plt.plot(rewards[:min_length], label=f"实验{j+1} 奖励")
+
+    plt.plot(rewards_std[:min_length], label="奖励标准差", color="gray")
+
+    plt.legend()
+    plt.xlabel("批次")
+    plt.ylabel("值")
+    plt.title("实验奖励和标准差")
+
+    # 保存图表
+    plt.savefig(args.log_dir + "/merged_plot.png")
+
+    # 关闭SummaryWriter
+    writer.close()
+
+    print(f"Rewards: {all_rewards}")
+    print(f"奖励标准差: {rewards_std}")
+
+agent_dqn
+import os
+import random
+import copy
+import numpy as np
+import torch
+from torch import nn, optim
+from agent_dir.agent import Agent
+from collections import deque
+
+class QNetwork(nn.Module):
+    # 初始化函数，接收输入大小、隐藏层大小和输出大小作为参数
+    def __init__(self, input_size, hidden_size, output_size):
+        # 调用父类的初始化方法
+        super(QNetwork, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.output = nn.Linear(hidden_size, output_size)
+
+    # 定义前向传播函数，接收输入数据
+    def forward(self, inputs):
+        x = torch.relu(self.fc1(inputs))
+        x = torch.relu(self.fc2(x))
+        return self.output(x)
+
+
+class ReplayBuffer:
+    def __init__(self, buffer_size):
+        self.buffer_size = buffer_size
+        # 创建一个双端队列，其最大长度为buffer_size
+        self.buffer = deque(maxlen=buffer_size)
+
+    def __len__(self):
+        # 返回双端队列的长度，即缓冲区中元素的数量
+        return len(self.buffer)
+
+    def push(self, *transition):
+        # 将经验数据添加到双端队列的末尾
+        self.buffer.append(transition)
+
+    def sample(self, batch_size):
+        # 从双端队列中随机抽取batch_size个元素
+        return random.sample(self.buffer, batch_size)
+
+class AgentDQN(Agent):
+    def __init__(self, env, args):
+        super(AgentDQN, self).__init__(env)
+        self.env = env
+        self.args = args
+        self.all_rewards = [] 
+
+        # 设置随机种子
+        self.seed = args.seed
+        torch.manual_seed(self.seed)
+        np.random.seed(self.seed)
+        random.seed(self.seed)
+
+        # 初始化经验回放缓冲区和Q网络
+        self.replay_buffer = ReplayBuffer(buffer_size=args.buffer_size)
+        self.q_network = QNetwork(env.observation_space.shape[0], args.hidden_size, env.action_space.n)
+        self.target_q_network = copy.deepcopy(self.q_network)
+
+        # 初始化优化器、学习率调度器和损失函数
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=args.lr)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=args.lr_decay_freq, gamma=args.lr_decay)
+        self.loss_fn = nn.MSELoss()
+        
+        # 初始化参数
+        self.gamma = args.gamma  # 折扣因子
+        self.batch_size = args.batch_size  # 批大小
+        # 更新目标网络的频率
+        self.update_target_freq = args.update_target_freq
+        # epsilon贪心策略的epsilon值
+        self.epsilon = args.epsilon
+        # epsilon贪心策略的最小epsilon值
+        self.epsilon_min = args.epsilon_min
+        self.epsilon_decay = args.epsilon_decay
+        # 设置日志目录
+        self.log_dir = './logs'
+        os.makedirs(self.log_dir, exist_ok=True)
+        # 记录一局的奖励
+        self.episode_rewards = 0
+
+    # 更新Q网络
+    def update_q_network(self):
+        # 从经验回放缓冲区中采样
+        state, action, reward, next_state, done = zip(*self.replay_buffer.sample(self.batch_size))
+
+        # 将采样数据转换为张量
+        state = torch.FloatTensor(np.array(state))
+        action = torch.LongTensor(action)
+        reward = torch.FloatTensor(reward)
+        next_state = torch.FloatTensor(np.array(next_state))
+        done = torch.FloatTensor(done)
+
+        # 计算当前Q值和下一个状态的Q值
+        q_values = self.q_network(state)
+        next_q_values = self.target_q_network(next_state)
+
+        q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
+        next_q_value = next_q_values.max(1)[0]
+        expected_q_value = reward + self.gamma * next_q_value * (1 - done)
+
+        # 计算损失并更新网络
+        loss = self.loss_fn(q_value, expected_q_value.detach())
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    # 更新目标网络
+    def update_target_network(self):
+        self.target_q_network = copy.deepcopy(self.q_network)
+
+    # 选择动作
+    def make_action(self,state):
+        # 根据epsilon选择动作
+        if random.random() > self.epsilon:
+            # 使用Q网络选择动作
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            with torch.no_grad():
+                action = self.q_network(state_tensor).max(1)[1].item()
+        else:
+            # 随机选择动作
+            action = self.env.action_space.sample()
+        return action
+    
+    def remember(self, state, action, reward, next_state, done):
+        self.replay_buffer.push(state, action, reward, next_state, done)
+        # 经验回放缓冲区中的经验数据足够，更新Q网络
+        if len(self.replay_buffer) > self.batch_size:
+            self.update_q_network()
+            # 更新epsilon值
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
+            else:
+                self.epsilon = self.epsilon_min
+            # 更新学习率
+            self.scheduler.step()
+    # 开始训练
+    def train(self):
+        state, _ = self.env.reset()
+        step = 0
+        for frame_idx in range(1, self.args.n_frames + 1):
+            done = False
+            self.episode_rewards = 0
+            while not done:
+                step += 1
+                # 随机选择动作
+                action = self.make_action(state)
+                # 执行动作
+                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                done = terminated or truncated
+                # 记忆
+                self.remember(state, action, reward, next_state, done)
+                state = next_state
+                self.episode_rewards += reward
+                # 每隔一定轮数更新目标网络
+                if step % self.update_target_freq == 0:
+                    self.update_target_network()
+                # 如果当前episode结束，重置环境
+                if done:
+                    self.all_rewards.append(self.episode_rewards)
+                    state, _ = self.env.reset()
+                    print(f"{frame_idx} reward {self.episode_rewards} epsilon {self.epsilon} step {step}")
+                    break
+            #循环外部
+```
+
+# 当前任务
+
+完善下面的Q网络实验报告部分，使用学术性语言输出
+```
+##### 更新Q网络
+
+```python
+class AgentDQN(Agent):
+.....
+def update_q_network(self):
+        # 从经验回放缓冲区中采样
+        state, action, reward, next_state, done = zip(*self.replay_buffer.sample(self.batch_size))
+
+        # 将采样数据转换为张量
+        state = torch.FloatTensor(np.array(state))
+        action = torch.LongTensor(action)
+        reward = torch.FloatTensor(reward)
+        next_state = torch.FloatTensor(np.array(next_state))
+        done = torch.FloatTensor(done)
+
+        # 计算当前Q值和下一个状态的Q值
+        q_values = self.q_network(state)
+        next_q_values = self.target_q_network(next_state)
+
+        q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
+        next_q_value = next_q_values.max(1)[0]
+        expected_q_value = reward + self.gamma * next_q_value * (1 - done)
+
+        # 计算损失并更新网络
+        loss = self.loss_fn(q_value, expected_q_value.detach())
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+.....
+```
+主要流程如下：

@@ -1,0 +1,134 @@
+Fun.py
+```python
+
+from LogicClass import Literal, Clause
+def resolve(clause1, clause2):
+    # 为了简化问题，我们只考虑每个子句中的第一个可合一的文字对
+    for lit1 in clause1.literals:
+        for lit2 in clause2.literals:
+            # 检查谓词是否相同且一个是另一个的否定
+            if lit1.predicate == lit2.predicate and lit1.negated != lit2.negated:
+                # 尝试合一lit1和lit2的参数
+                substitution = {}
+                can_unify = True
+                for term1, term2 in zip(lit1.terms, lit2.terms):
+                    sub = unify(term1, term2)
+                    if sub is None:
+                        can_unify = False
+                        break
+                    substitution.update(sub)
+                if can_unify:
+                    # 创建新的子句，应用替换，并删除归结的文字
+                    new_literals = set()
+                    for lit in clause1.literals.union(clause2.literals) - {lit1, lit2}:
+                        new_literal = apply_substitution(lit, substitution)
+                        new_literals.add(new_literal)
+                    return Clause(new_literals)
+    return None
+
+def unify(term1, term2):
+    """
+    尝试合一两个项，返回替换（如果合一成功）或None（如果合一失败）。
+    term1和term2是字符串。
+    """
+    if term1 == term2:
+        return {}  # 没有需要的替换
+    elif is_variable(term1):
+        print(f"将{term1}替换为{term2}")   
+        return {term1: term2}  # 将变量term1替换为term2
+    elif is_variable(term2):
+        print(f"将{term2}替换为{term1}")
+        return {term2: term1}  # 将变量term2替换为term1
+    else:
+        return None  # 两个常量不相等，无法合一
+
+def is_variable(term):
+    """
+    检查一个项是否是变量。
+    假设变量是小写字母表示的。
+    """
+    return term.islower()
+
+def apply_substitution(literal, substitution):
+    """
+    将替换应用于文字的项。
+    """
+    new_terms = [substitution.get(term, term) for term in literal.terms]
+    return Literal(literal.negated, literal.predicate, new_terms)
+def tuple_to_clause(t):
+    literals = []
+    for item in t:
+        negated = False
+        if item.startswith("~"):
+            negated = True
+            item = item[1:]
+        predicate, *terms = item.strip('()').split(',')
+        literals.append(Literal(negated, predicate, terms))
+    return Clause(literals)
+```
+class.py
+```python
+# 文字
+class Literal:
+    def __init__(self, negated, predicate, terms):
+        self.negated = negated  # 是否否定，布尔值
+        self.predicate = predicate  # 谓词符号，字符串
+        self.terms = terms  # 参数列表，列表形式
+
+    def __repr__(self):
+        neg = "~" if self.negated else ""
+        return f"{neg}{self.predicate}({', '.join(self.terms)})"
+
+    def __eq__(self, other):
+        return (self.negated == other.negated and
+                self.predicate == other.predicate and
+                self.terms == other.terms)
+
+    def __hash__(self):
+        return hash((self.negated, self.predicate, tuple(self.terms)))
+# 子句，包含多个文字
+class Clause:
+    def __init__(self, literals=None):
+        self.literals = set(literals) if literals else set()
+
+    def add_literal(self, literal):
+        self.literals.add(literal)
+        
+    def add_literal(self, negated, predicate, terms):
+        self.literals.add(Literal(negated, predicate, terms))
+
+    def __repr__(self):
+        if not self.literals:
+            return "[]"
+        return "{" + ", ".join(map(str, self.literals)) + "}"
+
+```
+考虑修改代码完成下面任务：
+编写函数 `ResolutionFOL`实现一阶逻辑的归结推理. 该函数要点如下:
+
+* 输入为子句集, `KB`子句中的每个元素是一阶逻辑公式(不含$\exists, \forall$等量词符号)
+* 输出归结推理的过程, 每个归结步骤存为字符串, 将所有归结步骤按序存到一个列表中并返回, 即返回的数据类型为 `list[str]`
+* 一个归结步骤的格式为 `步骤编号 R[用到的子句编号]{最一般合一} = 子句`, 其中最一般合一输出格式为"{变量=常量, 变量=常量}".如果一个字句包含多个公式，则每个公式用编号`a,b,c...`区分，如果一个字句仅包含一个公式，则不用编号区分。（见课件和例题）
+
+例题: 输入
+
+KB = {(GradStudent(sue),),(~GradStudent(x),Student(x)),(~Student(x),HardWorker(x)),(~HardWorker(sue),)}
+
+```python
+KB = {("GradStudent(sue)",),("~GradStudent(x)","Student(x)"),("~Student(x)","HardWorker(x)"),("~HardWorker(sue)",)}
+```
+
+则调用 `ResolutionFOL(KB)`后返回推理过程的列表如下:
+
+```
+1 (GradStudent(sue),)
+2 (~GradStudent(x),Student(x))
+3 (~Student(x),HardWorker(x))
+4 (~HardWorker(sue),)
+5 R[1,2a]{x=sue} = (Student(sue),)
+6 R[3a,5]{x=sue} = (HardWorker(sue),)
+7 R[4,6] = []
+```
+R[1,2a]的1指的是选则1 (GradStudent(sue),)
+2指的是选2 (~GradStudent(x),Student(x))
+a指的是选第一个文字~GradStudent(x)；重新考虑不用修改clause实现，因为之前的已经添加到步骤了
